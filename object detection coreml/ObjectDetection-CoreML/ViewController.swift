@@ -11,6 +11,12 @@ import Vision
 import CoreMedia
 
 class ViewController: UIViewController {
+    
+    var popupHeightConstraint: NSLayoutConstraint!
+    var popupPanGesture: UIPanGestureRecognizer!
+    var isExpanded = false
+
+    
 
     // MARK: - UI Properties
     @IBOutlet weak var videoPreview: UIView!
@@ -20,6 +26,7 @@ class ViewController: UIViewController {
     @IBOutlet weak var inferenceLabel: UILabel!
     @IBOutlet weak var etimeLabel: UILabel!
     @IBOutlet weak var fpsLabel: UILabel!
+    @IBOutlet var bottomPopup: UIView!
     
     // MARK - Core ML model
     // YOLOv3(iOS12+), YOLOv3FP16(iOS12+), YOLOv3Int8LUT(iOS12+)
@@ -62,6 +69,8 @@ class ViewController: UIViewController {
         
         // setup delegate for performance measurement
         👨‍🔧.delegate = self
+        
+        addBottomPopup()
     }
     
     override func didReceiveMemoryWarning() {
@@ -77,6 +86,7 @@ class ViewController: UIViewController {
         super.viewWillDisappear(animated)
         self.videoCapture.stop()
     }
+    
     
     // MARK: - Setup Core ML
     func setUpModel() {
@@ -108,6 +118,32 @@ class ViewController: UIViewController {
                 self.videoCapture.start()
             }
         }
+    }
+    
+    func addBottomPopup() {
+        
+        bottomPopup = UIView()
+        bottomPopup.backgroundColor = UIColor.systemGray
+        bottomPopup.layer.cornerRadius = 20
+        bottomPopup.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        bottomPopup.layer.masksToBounds = true
+        
+        view.addSubview(bottomPopup)
+        
+        bottomPopup.translatesAutoresizingMaskIntoConstraints = false
+        
+
+        
+        popupHeightConstraint = bottomPopup.heightAnchor.constraint(equalToConstant: 300)
+        
+        NSLayoutConstraint.activate([
+            bottomPopup.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomPopup.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomPopup.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            bottomPopup.heightAnchor.constraint(equalToConstant: 300),
+            popupHeightConstraint
+        ])
+        
     }
     
     override func viewDidLayoutSubviews() {
