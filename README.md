@@ -26,3 +26,17 @@ Nikolas worked on fine tuning the AI problems.
 Cole worked on the list implmentation and container. 
 
 Tait worked on documentation. 
+
+**1.2**
+
+Added a loading bar
+
+Processing wheel.
+
+List of elements
+
+Images for list of items
+
+Enhanced UI Design.
+
+We worked as a group in this. 
