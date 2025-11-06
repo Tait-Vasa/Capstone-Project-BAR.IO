@@ -427,7 +427,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COREML_CODEGEN_LANGUAGE = Swift;
-				DEVELOPMENT_TEAM = ZS357S5LX5;
+				DEVELOPMENT_TEAM = G7SL72Y8F5;
 				GCC_OPTIMIZATION_LEVEL = 0;
 				INFOPLIST_FILE = "ObjectDetection-CoreML/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = ObjectDetection;
@@ -436,7 +436,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.antonrbariq.objectdetection;
+				PRODUCT_BUNDLE_IDENTIFIER = com.colejohnson.objectdetection;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -454,7 +454,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_STYLE = Automatic;
 				COREML_CODEGEN_LANGUAGE = Swift;
-				DEVELOPMENT_TEAM = ZS357S5LX5;
+				DEVELOPMENT_TEAM = G7SL72Y8F5;
 				INFOPLIST_FILE = "ObjectDetection-CoreML/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = ObjectDetection;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
@@ -462,7 +462,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.antonrbariq.objectdetection;
+				PRODUCT_BUNDLE_IDENTIFIER = com.colejohnson.objectdetection;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
