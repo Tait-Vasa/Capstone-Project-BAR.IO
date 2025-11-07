@@ -3,7 +3,7 @@
 //  SSDMobileNet-CoreML
 //
 //  Created by GwakDoyoung on 01/02/2019.
-//  Modified by Cole Johnson on 2025/10/29
+//  Modified by Cole Johnson on 2025/11/06
 //
 
 import UIKit
@@ -31,6 +31,14 @@ class ViewController: UIViewController {
     var popupItems: [String] = ["Jack Daniels", "Jameson", "Patron"]
     var popupItemCodes: [String] = ["#A-1021", "#B-2042", "#C-3099"]
 
+    // MARK: - Bottle detection
+    var bottleInView = false
+    var lastBottleDetectionTime: TimeInterval = 0
+
+    // Header reference (so we can show/hide)
+    var headerView: UIView!
+    var progressView: UIProgressView!
+
     // MARK: - Core ML model
     lazy var objectDectectionModel = { return try? mymodel() }()
 
@@ -42,7 +50,6 @@ class ViewController: UIViewController {
     // MARK: - AV Property
     var videoCapture: VideoCapture!
     let semaphore = DispatchSemaphore(value: 1)
-    var lastExecution = Date()
 
     // MARK: - TableView Data
     var predictions: [VNRecognizedObjectObservation] = []
@@ -53,6 +60,11 @@ class ViewController: UIViewController {
     let maf1 = MovingAverageFilter()
     let maf2 = MovingAverageFilter()
     let maf3 = MovingAverageFilter()
+
+    // Timer for progress
+    var progressTimer: Timer?
+    var progressElapsed: TimeInterval = 0.0
+    let progressDuration: TimeInterval = 2.0 // 2 seconds to fill
 
     // MARK: - View Controller Life Cycle
     override func viewDidLoad() {
@@ -134,9 +146,10 @@ class ViewController: UIViewController {
         ])
 
         // ---- Transparent Header ----
-        let headerView = UIView()
+        headerView = UIView()
         headerView.translatesAutoresizingMaskIntoConstraints = false
-        headerView.backgroundColor = UIColor.clear  // transparent now
+        headerView.backgroundColor = UIColor.clear
+        headerView.alpha = 0 // start hidden
         bottomPopup.addSubview(headerView)
 
         // Spinner (loading wheel)
@@ -149,10 +162,10 @@ class ViewController: UIViewController {
         let iconImageView = UIImageView()
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
         iconImageView.contentMode = .scaleAspectFit
-        iconImageView.image = UIImage(named: "itemIcon1") // Jack Daniels image
+        iconImageView.image = UIImage(named: "itemIcon1")
         headerView.addSubview(iconImageView)
 
-        // Text stack (name + item code + progress bar)
+        // Text stack
         let textStack = UIStackView()
         textStack.axis = .vertical
         textStack.spacing = 3
@@ -168,9 +181,9 @@ class ViewController: UIViewController {
         itemCodeLabel.font = UIFont.systemFont(ofSize: 12)
         itemCodeLabel.textColor = UIColor.darkGray
 
-        let progressView = UIProgressView(progressViewStyle: .default)
+        progressView = UIProgressView(progressViewStyle: .default)
         progressView.translatesAutoresizingMaskIntoConstraints = false
-        progressView.progress = 0.65
+        progressView.progress = 0.0
         progressView.tintColor = .systemBlue
         progressView.layer.cornerRadius = 2
         progressView.clipsToBounds = true
@@ -179,7 +192,6 @@ class ViewController: UIViewController {
         textStack.addArrangedSubview(itemCodeLabel)
         textStack.addArrangedSubview(progressView)
 
-        // Layout constraints for header
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: bottomPopup.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: bottomPopup.leadingAnchor),
@@ -201,6 +213,8 @@ class ViewController: UIViewController {
 
             progressView.heightAnchor.constraint(equalToConstant: 4)
         ])
+        
+        headerView.alpha = 0
 
         // ---- Table view ----
         let tableView = UITableView()
@@ -254,30 +268,61 @@ class ViewController: UIViewController {
     func resizePreviewLayer() {
         videoCapture.previewLayer?.frame = videoPreview.bounds
     }
+
+    // MARK: - Header visibility
+    func showHeader() {
+        DispatchQueue.main.async {
+            self.headerView.isHidden = false
+            UIView.animate(withDuration: 0.25) {
+                self.headerView.alpha = 1
+            }
+
+            // Reset progress
+            self.progressTimer?.invalidate()
+            self.progressElapsed = 0
+            self.progressView.progress = 0
+
+            // Start progress timer
+            self.progressTimer = Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { timer in
+                self.progressElapsed += 0.02
+                let progress = Float(self.progressElapsed / self.progressDuration)
+                self.progressView.progress = min(progress, 1.0)
+                if self.progressElapsed >= self.progressDuration {
+                    timer.invalidate()
+                }
+            }
+        }
+    }
+
+    func hideHeader() {
+        DispatchQueue.main.async {
+            UIView.animate(withDuration: 0.25, animations: {
+                self.headerView.alpha = 0
+            }, completion: { _ in
+                self.headerView.isHidden = true
+                self.progressTimer?.invalidate()
+                self.progressElapsed = 0
+                self.progressView.progress = 0
+            })
+        }
+    }
 }
 
 // MARK: - Table View Data Source + Delegate
 extension ViewController: UITableViewDataSource, UITableViewDelegate {
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if tableView == popupTableView {
-            return popupItems.count
-        } else {
-            return predictions.count
-        }
+        if tableView == popupTableView { return popupItems.count }
+        else { return predictions.count }
     }
 
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 70
-    }
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { 70 }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         if tableView == popupTableView {
             let cell = tableView.dequeueReusableCell(withIdentifier: "PopupItemCell", for: indexPath)
             cell.selectionStyle = .none
-
             for subview in cell.contentView.subviews { subview.removeFromSuperview() }
 
-            // Number label
             let numberLabel = UILabel()
             numberLabel.translatesAutoresizingMaskIntoConstraints = false
             numberLabel.font = UIFont.boldSystemFont(ofSize: 18)
@@ -285,7 +330,6 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
             numberLabel.textColor = .secondaryLabel
             cell.contentView.addSubview(numberLabel)
 
-            // Icon container
             let iconContainer = UIView()
             iconContainer.translatesAutoresizingMaskIntoConstraints = false
             cell.contentView.addSubview(iconContainer)
@@ -296,7 +340,6 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
             iconImageView.image = UIImage(named: "itemIcon\(indexPath.row + 1)")
             iconContainer.addSubview(iconImageView)
 
-            // Stack for title + item code
             let textStack = UIStackView()
             textStack.axis = .vertical
             textStack.spacing = 2
@@ -315,14 +358,12 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
             textStack.addArrangedSubview(titleLabel)
             textStack.addArrangedSubview(itemCodeLabel)
 
-            // Percentage label
             let percentageLabel = UILabel()
             percentageLabel.translatesAutoresizingMaskIntoConstraints = false
             percentageLabel.font = UIFont.boldSystemFont(ofSize: 16)
             percentageLabel.textAlignment = .right
             cell.contentView.addSubview(percentageLabel)
 
-            // Assign percentage and color
             switch indexPath.row {
             case 0:
                 percentageLabel.text = "85%"
@@ -338,11 +379,9 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
                 percentageLabel.textColor = .secondaryLabel
             }
 
-            // Assign numbering
             let totalItems = popupItems.count
             numberLabel.text = "\(totalItems - indexPath.row)"
 
-            // Constraints
             NSLayoutConstraint.activate([
                 numberLabel.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 10),
                 numberLabel.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
@@ -404,18 +443,48 @@ extension ViewController {
 
     func visionRequestDidComplete(request: VNRequest, error: Error?) {
         self.👨‍🔧.🏷(with: "endInference")
+
         if let predictions = request.results as? [VNRecognizedObjectObservation] {
             self.predictions = predictions
+
             DispatchQueue.main.async {
                 self.boxesView.predictedObjects = predictions
                 self.labelsTableView.reloadData()
+
+                let bottleDetected = predictions.contains { observation in
+                    guard let topLabel = observation.labels.first?.identifier else { return false }
+                    return topLabel.lowercased().contains("botte")
+                }
+
+                let currentTime = Date().timeIntervalSince1970
+
+                if bottleDetected {
+                    if !self.bottleInView {
+                        self.bottleInView = true
+                        self.showHeader()
+                    }
+                    self.lastBottleDetectionTime = currentTime
+                } else {
+                    if self.bottleInView && currentTime - self.lastBottleDetectionTime > 1.0 {
+                        self.bottleInView = false
+                        self.hideHeader()
+                    }
+                }
+
                 self.👨‍🔧.🎬🤚()
                 self.isInferencing = false
             }
+
         } else {
+            DispatchQueue.main.async {
+                print("❌ No predictions at all — hiding header")
+                self.bottleInView = false
+                self.hideHeader()
+            }
             self.👨‍🔧.🎬🤚()
             self.isInferencing = false
         }
+
         self.semaphore.signal()
     }
 }
@@ -442,14 +511,11 @@ class MovingAverageFilter {
 
     public func append(element: Int) {
         arr.append(element)
-        if arr.count > maxCount {
-            arr.removeFirst()
-        }
+        if arr.count > maxCount { arr.removeFirst() }
     }
 
     public var averageValue: Int {
-        guard !arr.isEmpty else { return 0 }
-        let sum = arr.reduce(0) { $0 + $1 }
-        return Int(Double(sum) / Double(arr.count))
+        guard arr.count != 0 else { return 0 }
+        return arr.reduce(0, +) / arr.count
     }
 }
