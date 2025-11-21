@@ -3,7 +3,6 @@
 //  SSDMobileNet-CoreML
 //
 //  Created by GwakDoyoung on 01/02/2019.
-//  Copyright © 2019 tucan9389. All rights reserved.
 //
 
 import UIKit

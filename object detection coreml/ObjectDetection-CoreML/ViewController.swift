@@ -3,106 +3,121 @@
 //  SSDMobileNet-CoreML
 //
 //  Created by GwakDoyoung on 01/02/2019.
-//  Modified by Cole Johnson on 2025/10/29
+//  Modified by Cole Johnson on 2025/11/20
 //
 
 import UIKit
 import Vision
 import CoreMedia
 
+/// Main view controller that handles camera capture, Vision + CoreML inference,
+/// and a bottom popup UI used for scanning bottles into an inventory list.
 class ViewController: UIViewController {
 
-    var popupHeightConstraint: NSLayoutConstraint!
-    var popupPanGesture: UIPanGestureRecognizer!
-    var isExpanded = false
-
-    // MARK: - UI Properties
+    // MARK: - UI Outlets (from storyboard)
     @IBOutlet weak var videoPreview: UIView!
     @IBOutlet weak var boxesView: DrawingBoundingBoxView!
     @IBOutlet weak var labelsTableView: UITableView!
 
-    @IBOutlet weak var inferenceLabel: UILabel!
-    @IBOutlet weak var etimeLabel: UILabel!
-    @IBOutlet weak var fpsLabel: UILabel!
-    @IBOutlet var bottomPopup: UIView!
+    // MARK: - UI Properties created programmatically
+    var bottomPopup: UIView!
+    private var scanStatusLabel: UILabel!
+    private var headerView: UIView!
+    private var progressView: UIProgressView!
+    private var popupTableView: UITableView!
 
-    // Popup content
-    var popupTableView: UITableView!
-    var popupItems: [String] = ["Jack Daniels", "Jameson", "Patron"]
-    var popupItemCodes: [String] = ["#A-1021", "#B-2042", "#C-3099"]
+    // Popup data
+    private var popupItems: [String] = ["Jack Daniels", "Jameson", "Patron"]
+    private var popupItemCodes: [String] = ["#A-1021", "#B-2042", "#C-3099"]
 
-    // MARK: - Core ML model
-    lazy var objectDectectionModel = { return try? mymodel() }()
+    // ADDED → Percentages matching bottle names
+    private var popupPercentages: [Int] = [91, 53, 15]
 
-    // MARK: - Vision Properties
-    var request: VNCoreMLRequest?
-    var visionModel: VNCoreMLModel?
-    var isInferencing = false
+    // MARK: - Popup sizing & gestures
+    private var popupHeightConstraint: NSLayoutConstraint!
+    private var popupPanGesture: UIPanGestureRecognizer!
 
-    // MARK: - AV Property
-    var videoCapture: VideoCapture!
-    let semaphore = DispatchSemaphore(value: 1)
-    var lastExecution = Date()
+    // MARK: - Detection / scanning state
+    private var bottleInView = false
+    private var lastBottleDetectionTime: TimeInterval = 0
+    private var progressTimer: Timer?
+    private var progressElapsed: TimeInterval = 0.0
+    private let progressDuration: TimeInterval = 2.5
 
-    // MARK: - TableView Data
-    var predictions: [VNRecognizedObjectObservation] = []
+    private var currentBottleIndex = 0
+    private var scannedBottles: [(name: String, code: String, icon: String)] = []
 
-    // MARK - Performance Measurement Property
-    private let 👨‍🔧 = 📏()
+    // MARK: - CoreML / Vision
+    lazy private var objectDetectionModel: mymodel? = {
+        return try? mymodel()
+    }()
+    private var request: VNCoreMLRequest?
+    private var visionModel: VNCoreMLModel?
+    private var isInferencing = false
+    private let semaphore = DispatchSemaphore(value: 1)
+    private var videoCapture: VideoCapture!
+    private var predictions: [VNRecognizedObjectObservation] = []
 
-    let maf1 = MovingAverageFilter()
-    let maf2 = MovingAverageFilter()
-    let maf3 = MovingAverageFilter()
-
-    // MARK: - View Controller Life Cycle
+    // MARK: - View lifecycle
     override func viewDidLoad() {
         super.viewDidLoad()
-
-        // setup the model
         setUpModel()
-
-        // setup camera
         setUpCamera()
+        
+        let blackBackgroundView = UIView()
+        blackBackgroundView.backgroundColor = .black
+        blackBackgroundView.translatesAutoresizingMaskIntoConstraints = false
+        view.insertSubview(blackBackgroundView, at: 0)
 
-        // setup delegate for performance measurement
-        👨‍🔧.delegate = self
-
-        // setup popup
+        NSLayoutConstraint.activate([
+            blackBackgroundView.topAnchor.constraint(equalTo: view.topAnchor),
+            blackBackgroundView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            blackBackgroundView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            blackBackgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
+        ])
+        
+        addScanStatusLabel()
+        setScanStatus("Ready to Scan")
         addBottomPopup()
+        labelsTableView.isHidden = true
     }
 
-    override func didReceiveMemoryWarning() {
-        super.didReceiveMemoryWarning()
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        resizePreviewLayer()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        self.videoCapture.start()
+        videoCapture?.start()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        self.videoCapture.stop()
+        videoCapture?.stop()
     }
 
-    // MARK: - Setup Core ML
-    func setUpModel() {
-        guard let objectDectectionModel = objectDectectionModel else { fatalError("fail to load the model") }
-        if let visionModel = try? VNCoreMLModel(for: objectDectectionModel.model) {
-            self.visionModel = visionModel
-            request = VNCoreMLRequest(model: visionModel, completionHandler: visionRequestDidComplete)
-            request?.imageCropAndScaleOption = .scaleFill
-        } else {
-            fatalError("fail to create vision model")
+    // MARK: - Model & Vision setup
+    private func setUpModel() {
+        guard let mlModel = objectDetectionModel else { fatalError("Failed to load Core ML model.") }
+        do {
+            let vModel = try VNCoreMLModel(for: mlModel.model)
+            self.visionModel = vModel
+            let request = VNCoreMLRequest(model: vModel, completionHandler: visionRequestDidComplete)
+            request.imageCropAndScaleOption = .scaleFill
+            self.request = request
+        } catch {
+            fatalError("Failed to create VNCoreMLModel: \(error)")
         }
     }
 
-    // MARK: - SetUp Video
-    func setUpCamera() {
+    // MARK: - Camera setup
+    private func setUpCamera() {
         videoCapture = VideoCapture()
         videoCapture.delegate = self
         videoCapture.fps = 30
-        videoCapture.setUp(sessionPreset: .vga640x480) { success in
+        videoCapture.setUp(sessionPreset: .vga640x480) { [weak self] success in
+            guard let self = self else { return }
             if success {
                 if let previewLayer = self.videoCapture.previewLayer {
                     self.videoPreview.layer.addSublayer(previewLayer)
@@ -113,46 +128,85 @@ class ViewController: UIViewController {
         }
     }
 
-    // MARK: - Add Bottom Popup
-    func addBottomPopup() {
+    private func resizePreviewLayer() {
+        videoCapture.previewLayer?.frame = videoPreview.bounds
+    }
+
+    // MARK: - Scan status label
+    private func addScanStatusLabel() {
+        scanStatusLabel = UILabel()
+        scanStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        scanStatusLabel.textAlignment = .center
+        scanStatusLabel.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        scanStatusLabel.textColor = .white
+        scanStatusLabel.numberOfLines = 1
+        scanStatusLabel.alpha = 1.0
+        videoPreview.addSubview(scanStatusLabel)
+
+        NSLayoutConstraint.activate([
+            scanStatusLabel.topAnchor.constraint(equalTo: videoPreview.topAnchor, constant: 12),
+            scanStatusLabel.centerXAnchor.constraint(equalTo: videoPreview.centerXAnchor)
+        ])
+    }
+
+    private func setScanStatus(_ text: String) {
+        DispatchQueue.main.async {
+            UIView.transition(with: self.scanStatusLabel, duration: 0.18, options: .transitionCrossDissolve) {
+                self.scanStatusLabel.text = text
+            }
+        }
+    }
+
+    // MARK: - Bottom popup UI
+    private func addBottomPopup() {
         bottomPopup = UIView()
         bottomPopup.backgroundColor = UIColor.systemGray6.withAlphaComponent(0.5)
         bottomPopup.layer.cornerRadius = 20
         bottomPopup.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         bottomPopup.layer.masksToBounds = true
-
-        view.addSubview(bottomPopup)
         bottomPopup.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(bottomPopup)
 
         popupHeightConstraint = bottomPopup.heightAnchor.constraint(equalToConstant: 300)
-
         NSLayoutConstraint.activate([
             bottomPopup.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomPopup.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomPopup.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             popupHeightConstraint
         ])
+        
+        let contentBackground = UIView()
+        contentBackground.backgroundColor = UIColor.systemGray6
+        contentBackground.layer.cornerRadius = 20
+        contentBackground.translatesAutoresizingMaskIntoConstraints = false
+        bottomPopup.addSubview(contentBackground)
+        bottomPopup.sendSubviewToBack(contentBackground)
 
-        // ---- Transparent Header ----
-        let headerView = UIView()
+        NSLayoutConstraint.activate([
+            contentBackground.topAnchor.constraint(equalTo: bottomPopup.topAnchor, constant: 75),
+            contentBackground.leadingAnchor.constraint(equalTo: bottomPopup.leadingAnchor),
+            contentBackground.trailingAnchor.constraint(equalTo: bottomPopup.trailingAnchor),
+            contentBackground.bottomAnchor.constraint(equalTo: bottomPopup.bottomAnchor)
+        ])
+
+        // Header
+        headerView = UIView()
         headerView.translatesAutoresizingMaskIntoConstraints = false
-        headerView.backgroundColor = UIColor.clear  // transparent now
+        headerView.backgroundColor = UIColor.clear
+        headerView.alpha = 0
         bottomPopup.addSubview(headerView)
 
-        // Spinner (loading wheel)
         let spinner = UIActivityIndicatorView(style: .medium)
-        spinner.startAnimating()
         spinner.translatesAutoresizingMaskIntoConstraints = false
+        spinner.startAnimating()
         headerView.addSubview(spinner)
 
-        // Icon
         let iconImageView = UIImageView()
         iconImageView.translatesAutoresizingMaskIntoConstraints = false
         iconImageView.contentMode = .scaleAspectFit
-        iconImageView.image = UIImage(named: "itemIcon1") // Jack Daniels image
+        iconImageView.image = UIImage(named: "itemIcon1")
         headerView.addSubview(iconImageView)
 
-        // Text stack (name + item code + progress bar)
         let textStack = UIStackView()
         textStack.axis = .vertical
         textStack.spacing = 3
@@ -168,18 +222,14 @@ class ViewController: UIViewController {
         itemCodeLabel.font = UIFont.systemFont(ofSize: 12)
         itemCodeLabel.textColor = UIColor.darkGray
 
-        let progressView = UIProgressView(progressViewStyle: .default)
+        progressView = UIProgressView(progressViewStyle: .default)
         progressView.translatesAutoresizingMaskIntoConstraints = false
-        progressView.progress = 0.65
-        progressView.tintColor = .systemBlue
-        progressView.layer.cornerRadius = 2
-        progressView.clipsToBounds = true
+        progressView.progress = 0.0
 
         textStack.addArrangedSubview(nameLabel)
         textStack.addArrangedSubview(itemCodeLabel)
         textStack.addArrangedSubview(progressView)
 
-        // Layout constraints for header
         NSLayoutConstraint.activate([
             headerView.topAnchor.constraint(equalTo: bottomPopup.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: bottomPopup.leadingAnchor),
@@ -202,14 +252,12 @@ class ViewController: UIViewController {
             progressView.heightAnchor.constraint(equalToConstant: 4)
         ])
 
-        // ---- Table view ----
+        // Table
         let tableView = UITableView()
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.dataSource = self
         tableView.delegate = self
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "PopupItemCell")
-        tableView.separatorInset = .zero
-        tableView.showsVerticalScrollIndicator = true
         bottomPopup.addSubview(tableView)
         self.popupTableView = tableView
 
@@ -220,7 +268,7 @@ class ViewController: UIViewController {
             tableView.bottomAnchor.constraint(equalTo: bottomPopup.bottomAnchor, constant: -70)
         ])
 
-        // ---- Save button ----
+        // Save button
         let saveButton = UIButton(type: .system)
         saveButton.setTitle("Save Inventory", for: .normal)
         saveButton.titleLabel?.font = UIFont.boldSystemFont(ofSize: 18)
@@ -237,47 +285,153 @@ class ViewController: UIViewController {
             saveButton.heightAnchor.constraint(equalToConstant: 50)
         ])
 
+        addBottomPopupPanGesture()
         saveButton.addTarget(self, action: #selector(saveInventoryTapped), for: .touchUpInside)
     }
 
-    @objc func saveInventoryTapped() {
-        let alert = UIAlertController(title: "Success", message: "Save successfully!", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "OK", style: .default))
-        self.present(alert, animated: true)
+    private func addBottomPopupPanGesture() {
+        let panGesture = UIPanGestureRecognizer(target: self, action: #selector(handlePopupPan(_:)))
+        bottomPopup.addGestureRecognizer(panGesture)
+        self.popupPanGesture = panGesture
     }
 
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        resizePreviewLayer()
-    }
+    @objc private func handlePopupPan(_ gesture: UIPanGestureRecognizer) {
+        let translation = gesture.translation(in: view)
+        gesture.setTranslation(.zero, in: view)
+        let screenHeight = view.bounds.height
+        let snapFractions: [CGFloat] = [1/8, 2/8, 3/8, 4/8, 5/8, 6/8, 7/8]
+        let snapHeights = snapFractions.map { $0 * screenHeight }
 
-    func resizePreviewLayer() {
-        videoCapture.previewLayer?.frame = videoPreview.bounds
-    }
-}
+        var newHeight = popupHeightConstraint.constant - translation.y
+        newHeight = max(snapHeights.first!, min(snapHeights.last!, newHeight))
+        popupHeightConstraint.constant = newHeight
 
-// MARK: - Table View Data Source + Delegate
-extension ViewController: UITableViewDataSource, UITableViewDelegate {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        if tableView == popupTableView {
-            return popupItems.count
-        } else {
-            return predictions.count
+        UIView.animate(withDuration: 0.1) { self.view.layoutIfNeeded() }
+
+        if gesture.state == .ended {
+            let closest = snapHeights.min(by: { abs($0 - newHeight) < abs($1 - newHeight) }) ?? newHeight
+            UIView.animate(withDuration: 0.2) {
+                self.popupHeightConstraint.constant = closest
+                self.view.layoutIfNeeded()
+            }
         }
     }
 
-    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 70
+    // MARK: - Save Inventory
+    @objc private func saveInventoryTapped() {
+        guard !scannedBottles.isEmpty else {
+            let alert = UIAlertController(title: "No items", message: "You haven't scanned any bottles yet.", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            present(alert, animated: true)
+            return
+        }
+
+        let scannedListString = scannedBottles.map { "\($0.name) (\($0.code))" }.joined(separator: "\n")
+
+        let alert = UIAlertController(title: "Scanned Bottles", message: scannedListString, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Continue Scanning", style: .default))
+        alert.addAction(UIAlertAction(title: "Submit List", style: .destructive, handler: { _ in
+            self.scannedBottles.removeAll()
+            self.popupTableView.reloadData()
+            self.currentBottleIndex = 0
+            self.bottleInView = false
+            self.progressElapsed = 0
+            self.progressView.progress = 0
+            self.setScanStatus("Ready to Scan")
+            self.hideHeader()
+        }))
+        present(alert, animated: true)
     }
 
+    // MARK: - Header show/hide and scanning
+    private func showHeaderForNextBottle() {
+        guard currentBottleIndex < popupItems.count else { return }
+        setScanStatus("Scanning…")
+        let name = popupItems[currentBottleIndex]
+        let code = popupItemCodes[currentBottleIndex]
+        let iconName = "itemIcon\(currentBottleIndex + 1)"
+
+        if let textStack = headerView.subviews.compactMap({ $0 as? UIStackView }).first,
+           let nameLabel = textStack.arrangedSubviews[0] as? UILabel,
+           let itemCodeLabel = textStack.arrangedSubviews[1] as? UILabel {
+            nameLabel.text = name
+            itemCodeLabel.text = code
+        }
+
+        if let iconImageView = headerView.subviews.compactMap({ $0 as? UIImageView }).first {
+            iconImageView.image = UIImage(named: iconName)
+        }
+
+        DispatchQueue.main.async {
+            self.headerView.isHidden = false
+            UIView.animate(withDuration: 0.25) { self.headerView.alpha = 1 }
+            self.progressTimer?.invalidate()
+            self.progressElapsed = 0
+            self.progressView.progress = 0
+
+            self.progressTimer = Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { timer in
+                self.progressElapsed += 0.02
+                let progress = Float(self.progressElapsed / self.progressDuration)
+                self.progressView.progress = min(progress, 1.0)
+                if self.progressElapsed >= self.progressDuration {
+                    timer.invalidate()
+                    self.finishCurrentBottleScan()
+                }
+            }
+        }
+    }
+
+    private func finishCurrentBottleScan() {
+        guard currentBottleIndex < popupItems.count else { return }
+        setScanStatus("Scan Complete!")
+        let name = popupItems[currentBottleIndex]
+        let code = popupItemCodes[currentBottleIndex]
+        let icon = "itemIcon\(currentBottleIndex + 1)"
+        scannedBottles.insert((name, code, icon), at: 0)
+
+        DispatchQueue.main.async { self.popupTableView.reloadData() }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.hideHeader()
+            self.currentBottleIndex += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { self.setScanStatus("Ready to Scan") }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                if self.currentBottleIndex < self.popupItems.count { self.bottleInView = false }
+            }
+        }
+    }
+
+    private func hideHeader() {
+        DispatchQueue.main.async {
+            UIView.animate(withDuration: 0.25, animations: { self.headerView.alpha = 0 }, completion: { _ in
+                self.headerView.isHidden = true
+                self.progressTimer?.invalidate()
+                self.progressElapsed = 0
+                self.progressView.progress = 0
+                self.setScanStatus("Ready to Scan")
+            })
+        }
+    }
+}
+
+// MARK: - UITableView DataSource & Delegate
+
+extension ViewController: UITableViewDataSource, UITableViewDelegate {
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        return tableView == popupTableView ? scannedBottles.count : predictions.count
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat { return 70 }
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+
         if tableView == popupTableView {
             let cell = tableView.dequeueReusableCell(withIdentifier: "PopupItemCell", for: indexPath)
             cell.selectionStyle = .none
 
             for subview in cell.contentView.subviews { subview.removeFromSuperview() }
 
-            // Number label
             let numberLabel = UILabel()
             numberLabel.translatesAutoresizingMaskIntoConstraints = false
             numberLabel.font = UIFont.boldSystemFont(ofSize: 18)
@@ -285,7 +439,6 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
             numberLabel.textColor = .secondaryLabel
             cell.contentView.addSubview(numberLabel)
 
-            // Icon container
             let iconContainer = UIView()
             iconContainer.translatesAutoresizingMaskIntoConstraints = false
             cell.contentView.addSubview(iconContainer)
@@ -293,56 +446,49 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
             let iconImageView = UIImageView()
             iconImageView.translatesAutoresizingMaskIntoConstraints = false
             iconImageView.contentMode = .scaleAspectFit
-            iconImageView.image = UIImage(named: "itemIcon\(indexPath.row + 1)")
             iconContainer.addSubview(iconImageView)
 
-            // Stack for title + item code
             let textStack = UIStackView()
             textStack.axis = .vertical
             textStack.spacing = 2
             textStack.translatesAutoresizingMaskIntoConstraints = false
             cell.contentView.addSubview(textStack)
 
+            let bottle = scannedBottles[indexPath.row]
             let titleLabel = UILabel()
-            titleLabel.text = popupItems[indexPath.row]
+            titleLabel.text = bottle.name
             titleLabel.font = UIFont.systemFont(ofSize: 17, weight: .medium)
 
             let itemCodeLabel = UILabel()
-            itemCodeLabel.text = popupItemCodes[indexPath.row]
+            itemCodeLabel.text = bottle.code
             itemCodeLabel.font = UIFont.systemFont(ofSize: 13)
             itemCodeLabel.textColor = UIColor.darkGray
 
             textStack.addArrangedSubview(titleLabel)
             textStack.addArrangedSubview(itemCodeLabel)
 
-            // Percentage label
-            let percentageLabel = UILabel()
-            percentageLabel.translatesAutoresizingMaskIntoConstraints = false
-            percentageLabel.font = UIFont.boldSystemFont(ofSize: 16)
-            percentageLabel.textAlignment = .right
-            cell.contentView.addSubview(percentageLabel)
+            iconImageView.image = UIImage(named: bottle.icon)
+            numberLabel.text = "\(scannedBottles.count - indexPath.row)"
 
-            // Assign percentage and color
-            switch indexPath.row {
-            case 0:
-                percentageLabel.text = "85%"
-                percentageLabel.textColor = .systemGreen
-            case 1:
-                percentageLabel.text = "57%"
-                percentageLabel.textColor = .systemOrange
-            case 2:
-                percentageLabel.text = "21%"
-                percentageLabel.textColor = .systemRed
-            default:
-                percentageLabel.text = "-"
-                percentageLabel.textColor = .secondaryLabel
+            // ===== ADDED PERCENT LABEL =====
+            let percentLabel = UILabel()
+            percentLabel.translatesAutoresizingMaskIntoConstraints = false
+            percentLabel.font = UIFont.boldSystemFont(ofSize: 18)
+            percentLabel.textAlignment = .right
+            cell.contentView.addSubview(percentLabel)
+
+            let name = bottle.name
+            var pct = 0
+            if let idx = popupItems.firstIndex(of: name) {
+                pct = popupPercentages[idx]
             }
+            percentLabel.text = "\(pct)%"
 
-            // Assign numbering
-            let totalItems = popupItems.count
-            numberLabel.text = "\(totalItems - indexPath.row)"
+            if pct >= 80 { percentLabel.textColor = .systemGreen }
+            else if pct >= 30 { percentLabel.textColor = .systemOrange }
+            else { percentLabel.textColor = .systemRed }
 
-            // Constraints
+            // Layout
             NSLayoutConstraint.activate([
                 numberLabel.leadingAnchor.constraint(equalTo: cell.contentView.leadingAnchor, constant: 10),
                 numberLabel.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
@@ -361,95 +507,79 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
                 textStack.leadingAnchor.constraint(equalTo: iconContainer.trailingAnchor, constant: 12),
                 textStack.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
 
-                percentageLabel.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
-                percentageLabel.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
+                // Percentage anchored to right
+                percentLabel.trailingAnchor.constraint(equalTo: cell.contentView.trailingAnchor, constant: -16),
+                percentLabel.centerYAnchor.constraint(equalTo: cell.contentView.centerYAnchor),
+                percentLabel.widthAnchor.constraint(equalToConstant: 60),
 
-                textStack.trailingAnchor.constraint(lessThanOrEqualTo: percentageLabel.leadingAnchor, constant: -8)
+                // Make text stack stop before percent
+                textStack.trailingAnchor.constraint(lessThanOrEqualTo: percentLabel.leadingAnchor, constant: -10)
             ])
 
             return cell
-        } else {
-            guard let cell = tableView.dequeueReusableCell(withIdentifier: "InfoCell") else {
-                return UITableViewCell()
-            }
-            let rectString = predictions[indexPath.row].boundingBox.toString(digit: 2)
-            let confidence = predictions[indexPath.row].labels.first?.confidence ?? -1
-            let confidenceString = String(format: "%.3f", confidence)
-
-            cell.textLabel?.text = predictions[indexPath.row].label ?? "N/A"
-            cell.detailTextLabel?.text = "\(rectString), \(confidenceString)"
-            return cell
         }
+
+        // Default prediction cell
+        let reuseId = "InfoCell"
+        let cell = tableView.dequeueReusableCell(withIdentifier: reuseId) ?? UITableViewCell(style: .default, reuseIdentifier: reuseId)
+        cell.textLabel?.text = predictions[indexPath.row].labels.first?.identifier ?? "N/A"
+        return cell
     }
 }
 
 // MARK: - VideoCaptureDelegate
 extension ViewController: VideoCaptureDelegate {
     func videoCapture(_ capture: VideoCapture, didCaptureVideoFrame pixelBuffer: CVPixelBuffer?, timestamp: CMTime) {
-        if !self.isInferencing, let pixelBuffer = pixelBuffer {
-            self.isInferencing = true
-            self.👨‍🔧.🎬👏()
-            self.predictUsingVision(pixelBuffer: pixelBuffer)
-        }
+        guard !isInferencing, let pixelBuffer = pixelBuffer else { return }
+        isInferencing = true
+        predictUsingVision(pixelBuffer: pixelBuffer)
     }
 }
 
+// MARK: - Vision methods
 extension ViewController {
-    func predictUsingVision(pixelBuffer: CVPixelBuffer) {
-        guard let request = request else { fatalError() }
-        self.semaphore.wait()
+    private func predictUsingVision(pixelBuffer: CVPixelBuffer) {
+        guard let request = self.request else { fatalError("Vision request not configured.") }
+        semaphore.wait()
         let handler = VNImageRequestHandler(cvPixelBuffer: pixelBuffer)
         try? handler.perform([request])
     }
 
-    func visionRequestDidComplete(request: VNRequest, error: Error?) {
-        self.👨‍🔧.🏷(with: "endInference")
+    private func visionRequestDidComplete(request: VNRequest, error: Error?) {
         if let predictions = request.results as? [VNRecognizedObjectObservation] {
             self.predictions = predictions
             DispatchQueue.main.async {
                 self.boxesView.predictedObjects = predictions
                 self.labelsTableView.reloadData()
-                self.👨‍🔧.🎬🤚()
+
+                let bottleDetected = predictions.contains { $0.labels.first?.identifier.lowercased() == "botte" }
+                let currentTime = Date().timeIntervalSince1970
+
+                if bottleDetected {
+                    if !self.bottleInView && self.progressElapsed == 0 {
+                        self.bottleInView = true
+                        self.showHeaderForNextBottle()
+                    }
+                    self.lastBottleDetectionTime = currentTime
+                } else if self.bottleInView && currentTime - self.lastBottleDetectionTime > 0.5 {
+                    self.bottleInView = false
+                    self.progressTimer?.invalidate()
+                    self.progressElapsed = 0
+                    self.progressView.progress = 0
+                    self.hideHeader()
+                    self.setScanStatus("Ready to Scan")
+                }
+
                 self.isInferencing = false
             }
         } else {
-            self.👨‍🔧.🎬🤚()
+            DispatchQueue.main.async {
+                self.bottleInView = false
+                self.hideHeader()
+                self.setScanStatus("Ready to Scan")
+            }
             self.isInferencing = false
         }
-        self.semaphore.signal()
-    }
-}
-
-// MARK: - Performance Measurement Delegate
-extension ViewController: 📏Delegate {
-    func updateMeasure(inferenceTime: Double, executionTime: Double, fps: Int) {
-        DispatchQueue.main.async {
-            self.maf1.append(element: Int(inferenceTime * 1000.0))
-            self.maf2.append(element: Int(executionTime * 1000.0))
-            self.maf3.append(element: fps)
-
-            self.inferenceLabel.text = "inference: \(self.maf1.averageValue) ms"
-            self.etimeLabel.text = "execution: \(self.maf2.averageValue) ms"
-            self.fpsLabel.text = "fps: \(self.maf3.averageValue)"
-        }
-    }
-}
-
-// MARK: - Moving Average Filter
-class MovingAverageFilter {
-    private var arr: [Int] = []
-    private let maxCount = 10
-
-    public func append(element: Int) {
-        arr.append(element)
-        if arr.count > maxCount {
-            arr.removeFirst()
-        }
-    }
-
-    public var averageValue: Int {
-        guard !arr.isEmpty else { return 0 }
-        let sum = arr.reduce(0) { $0 + $1 }
-        return Int(Double(sum) / Double(arr.count))
+        semaphore.signal()
     }
 }

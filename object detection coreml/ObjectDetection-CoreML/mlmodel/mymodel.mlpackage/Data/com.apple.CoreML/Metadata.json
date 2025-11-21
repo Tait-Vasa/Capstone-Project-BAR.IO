@@ -1,0 +1,18 @@
+{
+  "MLModelVersionStringKey" : "8.3.75",
+  "MLModelDescriptionKey" : "Ultralytics YOLO11n model trained on C:\/Users\/Anton\/PycharmProjects\/bottle ai\/alcohol.yaml",
+  "MLModelCreatorDefinedKey" : {
+    "IoU threshold" : "0.7",
+    "Confidence threshold" : "0.25",
+    "stride" : "32",
+    "docs" : "https:\/\/docs.ultralytics.com",
+    "task" : "detect",
+    "date" : "2025-02-15T15:20:17.383068",
+    "imgsz" : "[1024, 1024]",
+    "batch" : "1",
+    "args" : "{'batch': 1, 'half': False, 'int8': False, 'nms': True}",
+    "names" : "{0: 'liquid_level', 1: 'botte'}"
+  },
+  "MLModelAuthorKey" : "Ultralytics",
+  "MLModelLicenseKey" : "AGPL-3.0 License (https:\/\/ultralytics.com\/license)"
+}
