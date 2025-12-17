@@ -4,7 +4,9 @@ Capstone project of UNO for Bar.IO
 
 ## Application
 
-The object of this app is to be able to find the liquid level of a bottle. It is to ease the troubles of taking inventory of partially filled bottles.
+The object of this app is to be able to find the liquid level of a bottle. It is to ease the troubles of taking inventory of partially filled bottles. For the purpose of this project, our sponsor wanted us to work on the design of the UI and make the application as a demonstration that he could use as a proof of concept.
+
+This application is used by running through the XCode developer enviroment. Once the swift code is loaded into Apple XCode, you can then deploy to an iPhone and run the application.
 
 
 ## Release Notes
@@ -40,3 +42,24 @@ Images for list of items
 Enhanced UI Design.
 
 We worked as a group in this. 
+
+**1.3 - Final Milestone - Project Done**
+
+Added functionality for the "scan" bottle into a list for demonstrations
+
+Made the scanning feel smoother and better for the user experience
+
+Cleaned up the user interface
+
+Bug Fixes - Bottle continues to "scan" after leaving view
+
+Will view 3 predetermined bottles and act as a it is scanning into a list
+
+We worked as a group in this. 
+
+## Branches
+
+Each branch shows where the project was at during each code milestone 
+
+The experimental branch has code for possible barcode scanning but sponsoror did not require and is nonfunctional
+
