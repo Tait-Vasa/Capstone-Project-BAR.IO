@@ -8,6 +8,8 @@ The object of this app is to be able to find the liquid level of a bottle. It is
 
 This application is used by running through the XCode developer enviroment. Once the swift code is loaded into Apple XCode, you can then deploy to an iPhone and run the application.
 
+## How to Run:
+To run, clone the repository and load the objectdetectioncore/LiqrVision.xcodeproj into Xcode, then deploy to an iPhone, this will allow the application to run correctly
 
 ## Release Notes
 
