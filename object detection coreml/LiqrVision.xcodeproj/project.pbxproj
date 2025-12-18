@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		133F04C32D6175B800BF50B5 /* mymodel.mlpackage in Sources */ = {isa = PBXBuildFile; fileRef = 133F04C22D6175B800BF50B5 /* mymodel.mlpackage */; };
+		3B8D5AB32EF3B147009416B9 /* Documentation.docc in Sources */ = {isa = PBXBuildFile; fileRef = 3B8D5AB22EF3B147009416B9 /* Documentation.docc */; };
 		553366CF220489DD00A67647 /* UIImage+CVPixelBuffer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553366CE220489DD00A67647 /* UIImage+CVPixelBuffer.swift */; };
 		554F149C220362AB00B828B0 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 554F149B220362AB00B828B0 /* AppDelegate.swift */; };
 		554F149E220362AB00B828B0 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 554F149D220362AB00B828B0 /* ViewController.swift */; };
@@ -32,6 +33,7 @@
 
 /* Begin PBXFileReference section */
 		133F04C22D6175B800BF50B5 /* mymodel.mlpackage */ = {isa = PBXFileReference; lastKnownFileType = folder.mlpackage; path = mymodel.mlpackage; sourceTree = "<group>"; };
+		3B8D5AB22EF3B147009416B9 /* Documentation.docc */ = {isa = PBXFileReference; lastKnownFileType = folder.documentationcatalog; path = Documentation.docc; sourceTree = "<group>"; };
 		553366C32204898800A67647 /* LiqrVisionTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LiqrVisionTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		553366CE220489DD00A67647 /* UIImage+CVPixelBuffer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = "UIImage+CVPixelBuffer.swift"; sourceTree = "<group>"; };
 		554F1498220362AB00B828B0 /* LiqrVision.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LiqrVision.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -67,6 +69,7 @@
 		554F148F220362AB00B828B0 = {
 			isa = PBXGroup;
 			children = (
+				3B8D5AB22EF3B147009416B9 /* Documentation.docc */,
 				554F149A220362AB00B828B0 /* ObjectDetection-CoreML */,
 				554F1499220362AB00B828B0 /* Products */,
 			);
@@ -227,6 +230,7 @@
 				554F149E220362AB00B828B0 /* ViewController.swift in Sources */,
 				558918EF22089FFE00F182BA /* Measure.swift in Sources */,
 				558918ED2208218800F182BA /* DrawingBoundingBoxView.swift in Sources */,
+				3B8D5AB32EF3B147009416B9 /* Documentation.docc in Sources */,
 				553366CF220489DD00A67647 /* UIImage+CVPixelBuffer.swift in Sources */,
 				554F14AE220362DA00B828B0 /* VideoCapture.swift in Sources */,
 				554F149C220362AB00B828B0 /* AppDelegate.swift in Sources */,
