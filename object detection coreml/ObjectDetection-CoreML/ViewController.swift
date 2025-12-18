@@ -10,60 +10,117 @@ import UIKit
 import Vision
 import CoreMedia
 
-/// Main view controller that handles camera capture, Vision + CoreML inference,
-/// and a bottom popup UI used for scanning bottles into an inventory list.
+/// Main view controller that manages:
+/// - Live camera capture
+/// - Core ML + Vision object detection
+/// - UI overlays for bounding boxes
+/// - A draggable bottom popup used to scan bottles into an inventory
 class ViewController: UIViewController {
 
     // MARK: - UI Outlets (from storyboard)
+
+    /// View that hosts the camera preview layer.
     @IBOutlet weak var videoPreview: UIView!
+
+    /// Custom overlay view responsible for drawing detected bounding boxes.
     @IBOutlet weak var boxesView: DrawingBoundingBoxView!
+
+    /// Table view used to optionally display raw prediction labels.
     @IBOutlet weak var labelsTableView: UITableView!
 
     // MARK: - UI Properties created programmatically
+
+    /// Container view for the draggable bottom popup.
     var bottomPopup: UIView!
+
+    /// Label displayed at the top of the camera preview indicating scan status.
     private var scanStatusLabel: UILabel!
+
+    /// Header view shown during active scanning with progress indicator.
     private var headerView: UIView!
+
+    /// Progress bar indicating how long a bottle has been continuously detected.
     private var progressView: UIProgressView!
+
+    /// Table view inside the bottom popup displaying scanned bottles.
     private var popupTableView: UITableView!
 
-    // Popup data
+    // MARK: - Popup data
+
+    /// Display names of bottles that can be scanned.
     private var popupItems: [String] = ["Jack Daniels", "Jameson", "Patron"]
+
+    /// Inventory codes corresponding to each bottle.
     private var popupItemCodes: [String] = ["#A-1021", "#B-2042", "#C-3099"]
 
-    // ADDED → Percentages matching bottle names
+    /// Percentage fill values corresponding to each bottle.
     private var popupPercentages: [Int] = [91, 53, 15]
 
     // MARK: - Popup sizing & gestures
+
+    /// Height constraint used to resize the bottom popup.
     private var popupHeightConstraint: NSLayoutConstraint!
+
+    /// Pan gesture recognizer for dragging the bottom popup.
     private var popupPanGesture: UIPanGestureRecognizer!
 
     // MARK: - Detection / scanning state
+
+    /// Indicates whether a bottle is currently detected in view.
     private var bottleInView = false
+
+    /// Timestamp of the last detected bottle frame.
     private var lastBottleDetectionTime: TimeInterval = 0
+
+    /// Timer driving the scan progress animation.
     private var progressTimer: Timer?
+
+    /// Elapsed time since scanning started for the current bottle.
     private var progressElapsed: TimeInterval = 0.0
+
+    /// Required duration for a successful scan.
     private let progressDuration: TimeInterval = 2.5
 
+    /// Index of the next bottle to be scanned.
     private var currentBottleIndex = 0
+
+    /// List of bottles that have already been scanned.
     private var scannedBottles: [(name: String, code: String, icon: String)] = []
 
     // MARK: - CoreML / Vision
+
+    /// Lazily loaded Core ML object detection model.
     lazy private var objectDetectionModel: mymodel? = {
         return try? mymodel()
     }()
+
+    /// Vision request used to perform Core ML inference.
     private var request: VNCoreMLRequest?
+
+    /// Vision wrapper around the Core ML model.
     private var visionModel: VNCoreMLModel?
+
+    /// Flag used to prevent overlapping inference requests.
     private var isInferencing = false
+
+    /// Semaphore used to serialize Vision requests.
     private let semaphore = DispatchSemaphore(value: 1)
+
+    /// Camera capture helper object.
     private var videoCapture: VideoCapture!
+
+    /// Most recent Vision predictions.
     private var predictions: [VNRecognizedObjectObservation] = []
 
     // MARK: - View lifecycle
+
+    /// Called after the view has been loaded into memory.
+    /// Sets up the ML model, camera, background, UI overlays, and popup.
     override func viewDidLoad() {
         super.viewDidLoad()
         setUpModel()
         setUpCamera()
-        
+
         let blackBackgroundView = UIView()
         blackBackgroundView.backgroundColor = .black
         blackBackgroundView.translatesAutoresizingMaskIntoConstraints = false
@@ -75,29 +132,35 @@ class ViewController: UIViewController {
             blackBackgroundView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             blackBackgroundView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
-        
+
         addScanStatusLabel()
         setScanStatus("Ready to Scan")
         addBottomPopup()
         labelsTableView.isHidden = true
     }
 
+    /// Called after the view lays out its subviews.
+    /// Used here to resize the camera preview layer.
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         resizePreviewLayer()
     }
 
+    /// Starts camera capture when the view appears.
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         videoCapture?.start()
     }
 
+    /// Stops camera capture when the view disappears.
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         videoCapture?.stop()
     }
 
     // MARK: - Model & Vision setup
+
+    /// Loads the Core ML model and configures the Vision request.
     private func setUpModel() {
         guard let mlModel = objectDetectionModel else { fatalError("Failed to load Core ML model.") }
         do {
@@ -112,6 +175,8 @@ class ViewController: UIViewController {
     }
 
     // MARK: - Camera setup
+
+    /// Configures and starts the camera capture session.
     private func setUpCamera() {
         videoCapture = VideoCapture()
         videoCapture.delegate = self
@@ -128,11 +193,14 @@ class ViewController: UIViewController {
         }
     }
 
+    /// Resizes the preview layer to match the preview view bounds.
     private func resizePreviewLayer() {
         videoCapture.previewLayer?.frame = videoPreview.bounds
     }
 
     // MARK: - Scan status label
+
+    /// Creates and adds the scan status label to the preview.
     private func addScanStatusLabel() {
         scanStatusLabel = UILabel()
         scanStatusLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -149,6 +217,7 @@ class ViewController: UIViewController {
         ])
     }
 
+    /// Updates the scan status label text with a crossfade animation.
     private func setScanStatus(_ text: String) {
         DispatchQueue.main.async {
             UIView.transition(with: self.scanStatusLabel, duration: 0.18, options: .transitionCrossDissolve) {
@@ -158,6 +227,8 @@ class ViewController: UIViewController {
     }
 
     // MARK: - Bottom popup UI
+
+    /// Builds and configures the draggable bottom popup interface.
     private func addBottomPopup() {
         bottomPopup = UIView()
         bottomPopup.backgroundColor = UIColor.systemGray6.withAlphaComponent(0.5)
@@ -174,7 +245,7 @@ class ViewController: UIViewController {
             bottomPopup.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             popupHeightConstraint
         ])
-        
+
         let contentBackground = UIView()
         contentBackground.backgroundColor = UIColor.systemGray6
         contentBackground.layer.cornerRadius = 20
@@ -318,6 +389,9 @@ class ViewController: UIViewController {
     }
 
     // MARK: - Save Inventory
+
+    /// Handler for the "Save Inventory" button.
+    /// Shows a confirmation alert with the list of scanned bottles.
     @objc private func saveInventoryTapped() {
         guard !scannedBottles.isEmpty else {
             let alert = UIAlertController(title: "No items", message: "You haven't scanned any bottles yet.", preferredStyle: .alert)
@@ -344,6 +418,8 @@ class ViewController: UIViewController {
     }
 
     // MARK: - Header show/hide and scanning
+
+    /// Shows the scanning header and starts progress animation for the next bottle.
     private func showHeaderForNextBottle() {
         guard currentBottleIndex < popupItems.count else { return }
         setScanStatus("Scanning…")
@@ -381,6 +457,7 @@ class ViewController: UIViewController {
         }
     }
 
+    /// Completes the scan of the current bottle and updates the table.
     private func finishCurrentBottleScan() {
         guard currentBottleIndex < popupItems.count else { return }
         setScanStatus("Scan Complete!")
@@ -401,6 +478,7 @@ class ViewController: UIViewController {
         }
     }
 
+    /// Hides the header and resets the progress.
     private func hideHeader() {
         DispatchQueue.main.async {
             UIView.animate(withDuration: 0.25, animations: { self.headerView.alpha = 0 }, completion: { _ in
@@ -528,7 +606,9 @@ extension ViewController: UITableViewDataSource, UITableViewDelegate {
 }
 
 // MARK: - VideoCaptureDelegate
+
 extension ViewController: VideoCaptureDelegate {
+    /// Called when a video frame is captured from the camera.
     func videoCapture(_ capture: VideoCapture, didCaptureVideoFrame pixelBuffer: CVPixelBuffer?, timestamp: CMTime) {
         guard !isInferencing, let pixelBuffer = pixelBuffer else { return }
         isInferencing = true
@@ -537,7 +617,9 @@ extension ViewController: VideoCaptureDelegate {
 }
 
 // MARK: - Vision methods
+
 extension ViewController {
+    /// Runs Vision + Core ML prediction on the captured frame.
     private func predictUsingVision(pixelBuffer: CVPixelBuffer) {
         guard let request = self.request else { fatalError("Vision request not configured.") }
         semaphore.wait()
@@ -545,6 +627,7 @@ extension ViewController {
         try? handler.perform([request])
     }
 
+    /// Called when a Vision request completes.
     private func visionRequestDidComplete(request: VNRequest, error: Error?) {
         if let predictions = request.results as? [VNRecognizedObjectObservation] {
             self.predictions = predictions
